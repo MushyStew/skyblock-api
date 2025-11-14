@@ -1,0 +1,31 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SkyBlock Price API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://RENDER_URL_TO_BE_FILLED.com"
+    }
+  ],
+  "paths": {
+    "/api/item": {
+      "get": {
+        "operationId": "getSkyblockItem",
+        "summary": "Get SkyBlock bazaar & AH data",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Success" }
+        }
+      }
+    }
+  }
+}
