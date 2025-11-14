@@ -5,10 +5,11 @@ const path = require("path");
 
 const app = express();
 
-// ---------------------- NEU ITEM DB LOADING ----------------------
+// ---------------------- LOAD NEU ITEM DB ----------------------
 
 let NEU_DB = {};
 try {
+  // Make sure items_merged.json is in the same folder as this file
   NEU_DB = JSON.parse(fs.readFileSync("./items_merged.json", "utf8"));
   console.log("Loaded NEU DB with", Object.keys(NEU_DB).length, "items");
 } catch (e) {
@@ -46,14 +47,13 @@ async function safeJsonFetch(url, retries = 3) {
 
   for (let i = 0; i < retries; i++) {
     try {
-      // timeout to avoid hanging requests
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
 
-      // 404 means "no data available" (not a hard error)
+      // 404 = "no data" (we treat as null, not a hard error)
       if (response.status === 404) {
         return null;
       }
@@ -71,7 +71,7 @@ async function safeJsonFetch(url, retries = 3) {
       return JSON.parse(text);
     } catch (err) {
       lastError = err;
-      console.log(`Fetch attempt ${i + 1} failed:`, err.toString());
+      console.log(`Fetch attempt ${i + 1} failed for ${url}:`, err.toString());
       await new Promise((r) => setTimeout(r, 300));
     }
   }
@@ -88,7 +88,8 @@ app.get("/", (req, res) => {
   res.send("SkyBlock API is running.");
 });
 
-// Main API endpoint
+// ---------------------- MAIN API ENDPOINT ----------------------
+
 app.get("/api/item", async (req, res) => {
   const rawInput = req.query.identifier;
 
@@ -96,7 +97,7 @@ app.get("/api/item", async (req, res) => {
     return res.status(400).json({ error: "Missing 'identifier' query parameter" });
   }
 
-  // 🔹 Use NEU to normalize the identifier (this was missing before)
+  // Use NEU to normalize the identifier (this was the missing step before)
   const id = normalizeIdentifier(rawInput);
 
   if (!id) {
@@ -104,17 +105,45 @@ app.get("/api/item", async (req, res) => {
   }
 
   try {
-    // CoflNet bazaar snapshot (may be null if endpoint fails or item is not bazaar-tracked)
-    const bazaarAll = await safeJsonFetch("https://sky.coflnet.com/api/raw/bazaar").catch(
-      () => null
-    );
+    // 1) Bazaar snapshot (might fail or return null)
+    let bazaarAll = await safeJsonFetch(
+      "https://sky.coflnet.com/api/raw/bazaar"
+    ).catch((err) => {
+      console.error("Bazaar fetch failed:", err.toString());
+      return null;
+    });
 
-    // CoflNet auction average (may be null for many items)
+    // If bazaarAll is null or not an object, force it to {} so bazaarAll[id] never crashes
+    if (!bazaarAll || typeof bazaarAll !== "object") {
+      bazaarAll = {};
+    }
+
+    const bazaarEntry = bazaarAll[id] ? bazaarAll[id] : null;
+
+    // 2) Auction history (may legitimately be null)
     const history = await safeJsonFetch(
       `https://sky.coflnet.com/api/averageAuction?tag=${id}`
-    ).catch(() => null);
+    ).catch((err) => {
+      console.error("Auction history fetch failed:", err.toString());
+      return null;
+    });
 
-    // 🔹 Guard against bazaarAll being null
-    const bazaarEntry = bazaarAll && bazaarAll[id] ? bazaarAll[id] : null;
+    res.json({
+      identifier_input: rawInput,
+      normalized_id: id,
+      neu: NEU_DB[id] || null,        // NEU metadata (rarity, name, etc.)
+      bazaar: bazaarEntry,            // null if not a bazaar item or data missing
+      auctionHistory: history || null // null if no AH data
+    });
+  } catch (error) {
+    console.error("Unexpected server error:", error);
+    res.status(500).json({ error: error.toString() });
+  }
+});
 
-    r
+// ---------------------- START SERVER ----------------------
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log("SkyBlock API running on port " + PORT);
+});
