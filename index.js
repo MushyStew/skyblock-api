@@ -97,7 +97,7 @@ app.get("/api/item", async (req, res) => {
     return res.status(400).json({ error: "Missing 'identifier' query parameter" });
   }
 
-  // Use NEU to normalize the identifier (this was the missing step before)
+  // Use NEU to normalize the identifier
   const id = normalizeIdentifier(rawInput);
 
   if (!id) {
@@ -105,22 +105,36 @@ app.get("/api/item", async (req, res) => {
   }
 
   try {
-    // 1) Bazaar snapshot (might fail or return null)
-    let bazaarAll = await safeJsonFetch(
-      "https://sky.coflnet.com/api/raw/bazaar"
+    // 1) Hypixel Bazaar (official, stable endpoint, no API key required)
+    let hypBazaar = await safeJsonFetch(
+      "https://api.hypixel.net/v2/skyblock/bazaar"
     ).catch((err) => {
-      console.error("Bazaar fetch failed:", err.toString());
+      console.error("Hypixel bazaar fetch failed:", err.toString());
       return null;
     });
 
-    // If bazaarAll is null or not an object, force it to {} so bazaarAll[id] never crashes
-    if (!bazaarAll || typeof bazaarAll !== "object") {
-      bazaarAll = {};
+    let bazaarEntry = null;
+    if (
+      hypBazaar &&
+      hypBazaar.success &&
+      hypBazaar.products &&
+      hypBazaar.products[id] &&
+      hypBazaar.products[id].quick_status
+    ) {
+      const qs = hypBazaar.products[id].quick_status;
+      bazaarEntry = {
+        buyPrice: qs.buyPrice ?? null,
+        sellPrice: qs.sellPrice ?? null,
+        buyVolume: qs.buyVolume ?? null,
+        sellVolume: qs.sellVolume ?? null,
+        buyMovingWeek: qs.buyMovingWeek ?? null,
+        sellMovingWeek: qs.sellMovingWeek ?? null,
+        buyOrders: qs.buyOrders ?? null,
+        sellOrders: qs.sellOrders ?? null
+      };
     }
 
-    const bazaarEntry = bazaarAll[id] ? bazaarAll[id] : null;
-
-    // 2) Auction history (may legitimately be null)
+    // 2) CoflNet Auction history (may legitimately be null)
     const history = await safeJsonFetch(
       `https://sky.coflnet.com/api/averageAuction?tag=${id}`
     ).catch((err) => {
@@ -132,7 +146,7 @@ app.get("/api/item", async (req, res) => {
       identifier_input: rawInput,
       normalized_id: id,
       neu: NEU_DB[id] || null,        // NEU metadata (rarity, name, etc.)
-      bazaar: bazaarEntry,            // null if not a bazaar item or data missing
+      bazaar: bazaarEntry,            // Structured bazaar data from Hypixel
       auctionHistory: history || null // null if no AH data
     });
   } catch (error) {
