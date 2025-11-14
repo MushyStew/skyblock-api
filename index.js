@@ -79,3 +79,36 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("SkyBlock API running on port " + PORT);
 });
+
+const fs = require("fs");
+let NEU_DB = {};
+
+try {
+  NEU_DB = JSON.parse(fs.readFileSync("./items_merged.json", "utf8"));
+  console.log("Loaded NEU DB with", Object.keys(NEU_DB).length, "items");
+} catch (e) {
+  console.error("Failed to load NEU DB:", e);
+}
+
+function normalizeIdentifier(input) {
+  if (!input) return null;
+  const query = input.toLowerCase().trim();
+
+  // 1) Direct ID match
+  if (NEU_DB[query.toUpperCase()]) return query.toUpperCase();
+
+  // 2) Exact name match
+  for (const id in NEU_DB) {
+    const name = NEU_DB[id]?.displayname || NEU_DB[id]?.name || "";
+    if (name.toLowerCase() === query) return id;
+  }
+
+  // 3) Partial match
+  for (const id in NEU_DB) {
+    const name = NEU_DB[id]?.displayname || NEU_DB[id]?.name || "";
+    if (name.toLowerCase().includes(query)) return id;
+  }
+
+  return null;
+}
+
