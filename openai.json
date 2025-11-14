@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "https://RENDER_URL_TO_BE_FILLED.com"
+      "url": "https://skyblock-api-7dgq.onrender.com"
     }
   ],
   "paths": {
