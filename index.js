@@ -1,29 +1,59 @@
 const express = require("express");
 const fetch = require("node-fetch");
+const fs = require("fs");
 const path = require("path");
 
 const app = express();
 
-// Serve openapi.json
-app.use(express.static(__dirname));
+// ---------------------- NEU ITEM DB LOADING ----------------------
 
-// Basic test endpoint
-app.get("/", (req, res) => {
-  res.send("SkyBlock API is running.");
-});
+let NEU_DB = {};
+try {
+  NEU_DB = JSON.parse(fs.readFileSync("./items_merged.json", "utf8"));
+  console.log("Loaded NEU DB with", Object.keys(NEU_DB).length, "items");
+} catch (e) {
+  console.error("Failed to load NEU DB:", e);
+  NEU_DB = {};
+}
+
+// Normalize user input (name/partial/name → internal ID)
+function normalizeIdentifier(input) {
+  if (!input) return null;
+  const query = input.toLowerCase().trim();
+
+  // 1) Direct ID match (HYPERION)
+  if (NEU_DB[query.toUpperCase()]) return query.toUpperCase();
+
+  // 2) Exact name match ("Hyperion")
+  for (const id in NEU_DB) {
+    const name = NEU_DB[id]?.displayname || NEU_DB[id]?.name || "";
+    if (name.toLowerCase() === query) return id;
+  }
+
+  // 3) Partial name match ("hyp" → "HYPERION")
+  for (const id in NEU_DB) {
+    const name = NEU_DB[id]?.displayname || NEU_DB[id]?.name || "";
+    if (name.toLowerCase().includes(query)) return id;
+  }
+
+  return null;
+}
+
+// ---------------------- SAFE FETCH WRAPPER ----------------------
 
 async function safeJsonFetch(url, retries = 3) {
   let lastError = null;
 
   for (let i = 0; i < retries; i++) {
     try {
+      // timeout to avoid hanging requests
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
 
-      // If the endpoint returns 404 → item not tracked
+      // 404 means "no data available" (not a hard error)
       if (response.status === 404) {
         return null;
       }
@@ -39,75 +69,52 @@ async function safeJsonFetch(url, retries = 3) {
       }
 
       return JSON.parse(text);
-
     } catch (err) {
       lastError = err;
       console.log(`Fetch attempt ${i + 1} failed:`, err.toString());
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 300));
     }
   }
 
   throw lastError;
 }
 
+// ---------------------- EXPRESS SETUP ----------------------
 
+app.use(express.static(__dirname));
+
+// Basic test endpoint
+app.get("/", (req, res) => {
+  res.send("SkyBlock API is running.");
+});
 
 // Main API endpoint
 app.get("/api/item", async (req, res) => {
-  const id = (req.query.identifier || "").toUpperCase().replace(/\s+/g, "_");
+  const rawInput = req.query.identifier;
+
+  if (!rawInput) {
+    return res.status(400).json({ error: "Missing 'identifier' query parameter" });
+  }
+
+  // 🔹 Use NEU to normalize the identifier (this was missing before)
+  const id = normalizeIdentifier(rawInput);
+
+  if (!id) {
+    return res.status(404).json({ error: "Item not found in NEU database" });
+  }
 
   try {
-    const bazaar = await safeJsonFetch("https://sky.coflnet.com/api/raw/bazaar");
-
-  const history = await safeJsonFetch(
-      `https://sky.coflnet.com/api/averageAuction?tag=${id}`
+    // CoflNet bazaar snapshot (may be null if endpoint fails or item is not bazaar-tracked)
+    const bazaarAll = await safeJsonFetch("https://sky.coflnet.com/api/raw/bazaar").catch(
+      () => null
     );
 
-    res.json({
-      identifier_input: req.query.identifier,
-      normalized_id: id,
-      bazaar: bazaar[id] || null,
-      auctionHistory: history
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.toString() });
-  }
-});
+    // CoflNet auction average (may be null for many items)
+    const history = await safeJsonFetch(
+      `https://sky.coflnet.com/api/averageAuction?tag=${id}`
+    ).catch(() => null);
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log("SkyBlock API running on port " + PORT);
-});
+    // 🔹 Guard against bazaarAll being null
+    const bazaarEntry = bazaarAll && bazaarAll[id] ? bazaarAll[id] : null;
 
-const fs = require("fs");
-let NEU_DB = {};
-
-try {
-  NEU_DB = JSON.parse(fs.readFileSync("./items_merged.json", "utf8"));
-  console.log("Loaded NEU DB with", Object.keys(NEU_DB).length, "items");
-} catch (e) {
-  console.error("Failed to load NEU DB:", e);
-}
-
-function normalizeIdentifier(input) {
-  if (!input) return null;
-  const query = input.toLowerCase().trim();
-
-  // 1) Direct ID match
-  if (NEU_DB[query.toUpperCase()]) return query.toUpperCase();
-
-  // 2) Exact name match
-  for (const id in NEU_DB) {
-    const name = NEU_DB[id]?.displayname || NEU_DB[id]?.name || "";
-    if (name.toLowerCase() === query) return id;
-  }
-
-  // 3) Partial match
-  for (const id in NEU_DB) {
-    const name = NEU_DB[id]?.displayname || NEU_DB[id]?.name || "";
-    if (name.toLowerCase().includes(query)) return id;
-  }
-
-  return null;
-}
-
+    r
