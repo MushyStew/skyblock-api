@@ -17,12 +17,16 @@ async function safeJsonFetch(url, retries = 3) {
 
   for (let i = 0; i < retries; i++) {
     try {
-      // timeout in case CoflNet hangs
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
+
+      // If the endpoint returns 404 → item not tracked
+      if (response.status === 404) {
+        return null;
+      }
 
       if (!response.ok) {
         throw new Error("HTTP " + response.status);
@@ -30,21 +34,22 @@ async function safeJsonFetch(url, retries = 3) {
 
       const text = await response.text();
 
-      // Validate non-empty JSON BEFORE parsing
-      if (!text || text.trim().length < 5) {
-        throw new Error("Empty or incomplete JSON");
+      if (!text || text.trim().length < 2) {
+        throw new Error("Empty JSON");
       }
 
       return JSON.parse(text);
+
     } catch (err) {
       lastError = err;
       console.log(`Fetch attempt ${i + 1} failed:`, err.toString());
-      await new Promise(res => setTimeout(res, 300)); // small wait
+      await new Promise(r => setTimeout(r, 300));
     }
   }
 
   throw lastError;
 }
+
 
 
 // Main API endpoint
@@ -54,15 +59,9 @@ app.get("/api/item", async (req, res) => {
   try {
     const bazaar = await safeJsonFetch("https://sky.coflnet.com/api/raw/bazaar");
 
-    let history = null;
-    try {
-    history = await safeJsonFetch(
+  const history = await safeJsonFetch(
       `https://sky.coflnet.com/api/averageAuction?tag=${id}`
     );
-
-    } catch {
-      history = null;
-    }
 
     res.json({
       identifier_input: req.query.identifier,
