@@ -1,29 +1,88 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "SkyBlock Price API",
-    "version": "1.0.0"
+    "title": "SkyBlock Price & History API",
+    "version": "1.0.0",
+    "description": "Fetch Hypixel bazaar prices, CoflNet auction history, and NEU metadata for any SkyBlock item."
   },
   "servers": [
     {
-      "url": "https://skyblock-api-7dgq.onrender.com"
+      "url": "https://skyblock-api-7dgq.onrender.com",
+      "description": "Render backend for SkyBlock API"
     }
   ],
   "paths": {
     "/api/item": {
       "get": {
         "operationId": "getSkyblockItem",
-        "summary": "Get SkyBlock bazaar & AH data",
+        "summary": "Get SkyBlock item pricing, history, and metadata",
+        "description": "Returns NEU metadata, Hypixel bazaar data, and CoflNet auction history for a given Hypixel SkyBlock item identifier.",
         "parameters": [
           {
             "name": "identifier",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" }
+            "description": "Item ID or item name (e.g. 'HYPERION', 'Hyperion', 'enchanted diamond').",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Success" }
+          "200": {
+            "description": "Item data retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "identifier_input": {
+                      "type": "string",
+                      "description": "The raw identifier string received from the user."
+                    },
+                    "normalized_id": {
+                      "type": "string",
+                      "description": "Normalized internal NEU ID for the item."
+                    },
+                    "neu": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "NEU metadata for the item (displayname, rarity, crafting info, etc.)."
+                    },
+                    "bazaar": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "Structured bazaar data from the Hypixel API.",
+                      "properties": {
+                        "buyPrice": { "type": "number", "nullable": true },
+                        "sellPrice": { "type": "number", "nullable": true },
+                        "buyVolume": { "type": "number", "nullable": true },
+                        "sellVolume": { "type": "number", "nullable": true },
+                        "buyMovingWeek": { "type": "number", "nullable": true },
+                        "sellMovingWeek": { "type": "number", "nullable": true },
+                        "buyOrders": { "type": "number", "nullable": true },
+                        "sellOrders": { "type": "number", "nullable": true }
+                      }
+                    },
+                    "auctionHistory": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "Auction history from CoflNet (may be null)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid identifier."
+          },
+          "404": {
+            "description": "Item not found in NEU database."
+          },
+          "500": {
+            "description": "Server error."
+          }
         }
       }
     }
