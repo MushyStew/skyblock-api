@@ -138,6 +138,21 @@ app.get("/api/item", async (req, res) => {
   if (!rawInput) {
     return res.status(400).json({ error: "Missing 'identifier' query parameter" });
   }
+app.get("/api/patchnotes", async (req, res) => {
+  const limit = parseInt(req.query.limit, 10) || 30;
+
+  try {
+    const patches = await fetchPatchNotes(limit);
+    res.json({
+      source: CHANGELOG_URL,
+      count: patches.length,
+      patches
+    });
+  } catch (err) {
+    console.error("Error in /api/patchnotes:", err.toString());
+    res.status(500).json({ error: err.toString() });
+  }
+});
 
   // Use NEU to normalize the identifier
   const id = normalizeIdentifier(rawInput);
@@ -197,21 +212,6 @@ app.get("/api/item", async (req, res) => {
   }
 });
 
-app.get("/api/patchnotes", async (req, res) => {
-  const limit = parseInt(req.query.limit, 10) || 30;
-
-  try {
-    const patches = await fetchPatchNotes(limit);
-    res.json({
-      source: CHANGELOG_URL,
-      count: patches.length,
-      patches
-    });
-  } catch (err) {
-    console.error("Error in /api/patchnotes:", err.toString());
-    res.status(500).json({ error: err.toString() });
-  }
-});
 
 // ---------------------- START SERVER ----------------------
 
