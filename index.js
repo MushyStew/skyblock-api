@@ -4,6 +4,48 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
+const cheerio = require("cheerio");
+
+const CHANGELOG_URL = "https://hypixel-skyblock.fandom.com/wiki/Changelog";
+
+// Fetch and parse patch notes from the wiki
+async function fetchPatchNotes(limit = 30) {
+  const res = await fetch(CHANGELOG_URL);
+  if (!res.ok) {
+    throw new Error("Failed to fetch changelog: HTTP " + res.status);
+  }
+
+  const html = await res.text();
+  const $ = cheerio.load(html);
+  const patches = [];
+
+  // The Changelog page uses wikitable tables for patch notes
+  $("table.wikitable tbody tr").each((i, row) => {
+    if (patches.length >= limit) return;
+
+    const tds = $(row).find("td");
+    // Skip header or malformed rows
+    if (tds.length < 3) return;
+
+    const rawDate = $(tds[0]).text().trim();
+    const update = $(tds[1]).text().trim();
+    const description = $(tds[2]).text().trim();
+
+    let link = $(tds[1]).find("a").attr("href") || "";
+    if (link && !link.startsWith("http")) {
+      link = "https://hypixel-skyblock.fandom.com" + link;
+    }
+
+    patches.push({
+      rawDate,
+      update,
+      description,
+      link: link || null
+    });
+  });
+
+  return patches;
+}
 
 // ---------------------- LOAD NEU ITEM DB ----------------------
 
@@ -152,6 +194,22 @@ app.get("/api/item", async (req, res) => {
   } catch (error) {
     console.error("Unexpected server error:", error);
     res.status(500).json({ error: error.toString() });
+  }
+});
+
+app.get("/api/patchnotes", async (req, res) => {
+  const limit = parseInt(req.query.limit, 10) || 30;
+
+  try {
+    const patches = await fetchPatchNotes(limit);
+    res.json({
+      source: CHANGELOG_URL,
+      count: patches.length,
+      patches
+    });
+  } catch (err) {
+    console.error("Error in /api/patchnotes:", err.toString());
+    res.status(500).json({ error: err.toString() });
   }
 });
 
