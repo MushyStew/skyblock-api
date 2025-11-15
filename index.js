@@ -175,42 +175,6 @@ app.get("/", (req, res) => {
   res.send("SkyBlock API is running.");
 });
 
-// ===============================
-//    GET /api/patchnotes
-// ===============================
-app.get("/api/patchnotes", async (req, res) => {
-  const limit = parseInt(req.query.limit, 10) || 10;
-  const pageMax = parseInt(req.query.pageMax, 10) || 15;
-  const search = (req.query.search || "").trim();
-
-  try {
-    const threads = await searchPatchThreads({
-      search,
-      limit,
-      pageMax
-    });
-
-    const patches = [];
-    for (const t of threads) {
-      const body = await fetchPatchBody(t.url);
-      patches.push({
-        title: t.title,
-        url: t.url,
-        version: t.version,
-        body
-      });
-    }
-
-    res.json({
-      source: SB_FORUM_BASE,
-      count: patches.length,
-      patches
-    });
-  } catch (err) {
-    console.error("Error in /api/patchnotes:", err.toString());
-    res.status(500).json({ error: err.toString() });
-  }
-});
 
 // ===============================
 //        GET /api/item
@@ -305,22 +269,7 @@ app.get("/api/health", async (req, res) => {
   }
 
   // 3) Check patchnote crawler (page 1 only)
-  try {
-    const threads = await searchPatchThreads({
-      search: "",
-      limit: 1,
-      pageMax: 1
-    });
-
-    if (threads && threads.length > 0) {
-      report.patchnotes.ok = true;
-      report.patchnotes.sampleTitle = threads[0].title;
-    } else {
-      report.patchnotes.error = "No threads found on page 1";
-    }
-  } catch (err) {
-    report.patchnotes.error = err.toString();
-  }
+    patchnotes.ok = "Use GPT browser tool instead";
 
   res.json(report);
 });
