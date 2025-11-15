@@ -268,6 +268,62 @@ app.get("/api/item", async (req, res) => {
     res.status(500).json({ error: error.toString() });
   }
 });
+// ===============================
+//          HEALTH CHECK
+// ===============================
+app.get("/api/health", async (req, res) => {
+  const report = {
+    neuDB: { ok: false, count: 0, error: null },
+    bazaarAPI: { ok: false, sample: null, error: null },
+    patchnotes: { ok: false, sampleTitle: null, error: null },
+    timestamp: new Date().toISOString()
+  };
+
+  // 1) Check NEU DB
+  try {
+    const keys = Object.keys(NEU_DB);
+    report.neuDB.ok = keys.length > 0;
+    report.neuDB.count = keys.length;
+  } catch (err) {
+    report.neuDB.error = err.toString();
+  }
+
+  // 2) Check Hypixel Bazaar API
+  try {
+    const bz = await safeJsonFetch("https://api.hypixel.net/v2/skyblock/bazaar");
+
+    if (bz && bz.success && bz.products) {
+      // pick a stable item for diagnostics
+      const DIAMOND = bz.products["DIAMOND"]?.quick_status || null;
+      report.bazaarAPI.ok = true;
+      report.bazaarAPI.sample = DIAMOND;
+    } else {
+      report.bazaarAPI.error = "Unexpected response from Bazaar API";
+    }
+  } catch (err) {
+    report.bazaarAPI.error = err.toString();
+  }
+
+  // 3) Check patchnote crawler (page 1 only)
+  try {
+    const threads = await searchPatchThreads({
+      search: "",
+      limit: 1,
+      pageMax: 1
+    });
+
+    if (threads && threads.length > 0) {
+      report.patchnotes.ok = true;
+      report.patchnotes.sampleTitle = threads[0].title;
+    } else {
+      report.patchnotes.error = "No threads found on page 1";
+    }
+  } catch (err) {
+    report.patchnotes.error = err.toString();
+  }
+
+  res.json(report);
+});
 
 // ===============================
 //        START SERVER
