@@ -8,6 +8,97 @@ const cheerio = require("cheerio");
 
 const CHANGELOG_URL = "https://hypixel-skyblock.fandom.com/wiki/Changelog";
 
+function cleanDate(raw) {
+  // Example inputs: "PATCH 2025/November 9 November 9"
+  const regex = /(\d{4})[\/\- ]+([A-Za-z]+)[\/\- ]+(\d{1,2})/;
+  const m = raw.match(regex);
+  if (!m) return raw.trim();
+
+  const [_, year, monthStr, day] = m;
+  const month = new Date(`${monthStr} 1, 2000`).getMonth() + 1;
+  const mm = month < 10 ? "0" + month : month;
+  const dd = day < 10 ? "0" + day : day;
+
+  return `${year}-${mm}-${dd}`;
+}
+
+async function fetchPatchDetails(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    const $ = cheerio.load(html);
+
+    // Extract everything from the content section
+    const content = $("#mw-content-text").text().trim();
+
+    return content || null;
+  } catch (e) {
+    console.error("Error fetching patch detail:", url, e.toString());
+    return null;
+  }
+}
+async function scrapeChangelogPage(url, limit, accumulator = []) {
+  if (accumulator.length >= limit) return accumulator;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch " + url);
+
+  const html = await res.text();
+  const $ = cheerio.load(html);
+
+  $("table.wikitable tbody tr").each((i, row) => {
+    if (accumulator.length >= limit) return;
+
+    const tds = $(row).find("td");
+    if (tds.length < 3) return;
+
+    const rawDate = $(tds[0]).text().trim();
+    const update = $(tds[1]).text().trim();
+    const description = $(tds[2]).text().trim();
+
+    let link = $(tds[1]).find("a").attr("href") || "";
+    if (link && !link.startsWith("http")) {
+      link = "https://hypixel-skyblock.fandom.com" + link;
+    } else if (!link) {
+      link = null;
+    }
+
+    accumulator.push({
+      rawDate,
+      cleanDate: cleanDate(rawDate),
+      update,
+      description,
+      link,
+      detailedContent: null
+    });
+  });
+
+  // Find next-page link (Fandom uses a navbox)
+  const nextHref = $("a[title='Next page']").attr("href");
+  if (nextHref && accumulator.length < limit) {
+    const nextUrl = "https://hypixel-skyblock.fandom.com" + nextHref;
+    return await scrapeChangelogPage(nextUrl, limit, accumulator);
+  }
+
+  return accumulator;
+}
+async function fetchAllPatchNotes(limit = 50) {
+  const initialUrl = "https://hypixel-skyblock.fandom.com/wiki/Changelog";
+
+  const entries = await scrapeChangelogPage(initialUrl, limit);
+
+  // Fetch full patch content for each entry (if link exists)
+  for (const item of entries) {
+    if (item.link) {
+      item.detailedContent = await fetchPatchDetails(item.link);
+    }
+  }
+
+  return entries;
+}
+
 // Fetch and parse patch notes from the wiki
 async function fetchPatchNotes(limit = 30) {
   const res = await fetch(CHANGELOG_URL);
@@ -139,12 +230,12 @@ app.get("/api/item", async (req, res) => {
     return res.status(400).json({ error: "Missing 'identifier' query parameter" });
   }
 app.get("/api/patchnotes", async (req, res) => {
-  const limit = parseInt(req.query.limit, 10) || 30;
+  const limit = parseInt(req.query.limit, 10) || 50; // default to 50 entries
 
   try {
-    const patches = await fetchPatchNotes(limit);
+    const patches = await fetchAllPatchNotes(limit);
     res.json({
-      source: CHANGELOG_URL,
+      source: "https://hypixel-skyblock.fandom.com/wiki/Changelog",
       count: patches.length,
       patches
     });
@@ -153,6 +244,7 @@ app.get("/api/patchnotes", async (req, res) => {
     res.status(500).json({ error: err.toString() });
   }
 });
+
 
   // Use NEU to normalize the identifier
   const id = normalizeIdentifier(rawInput);
