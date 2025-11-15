@@ -2,147 +2,15 @@ const express = require("express");
 const fetch = require("node-fetch");
 const fs = require("fs");
 const path = require("path");
-
-const app = express();
 const cheerio = require("cheerio");
 
-const CHANGELOG_URL = "https://hypixel-skyblock.fandom.com/wiki/Changelog";
+const app = express();
 
-function cleanDate(raw) {
-  // Example inputs: "PATCH 2025/November 9 November 9"
-  const regex = /(\d{4})[\/\- ]+([A-Za-z]+)[\/\- ]+(\d{1,2})/;
-  const m = raw.match(regex);
-  if (!m) return raw.trim();
-
-  const [_, year, monthStr, day] = m;
-  const month = new Date(`${monthStr} 1, 2000`).getMonth() + 1;
-  const mm = month < 10 ? "0" + month : month;
-  const dd = day < 10 ? "0" + day : day;
-
-  return `${year}-${mm}-${dd}`;
-}
-
-async function fetchPatchDetails(url) {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-
-    const html = await res.text();
-    const $ = cheerio.load(html);
-
-    // Extract everything from the content section
-    const content = $("#mw-content-text").text().trim();
-
-    return content || null;
-  } catch (e) {
-    console.error("Error fetching patch detail:", url, e.toString());
-    return null;
-  }
-}
-async function scrapeChangelogPage(url, limit, accumulator = []) {
-  if (accumulator.length >= limit) return accumulator;
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch " + url);
-
-  const html = await res.text();
-  const $ = cheerio.load(html);
-
-  $("table.wikitable tbody tr").each((i, row) => {
-    if (accumulator.length >= limit) return;
-
-    const tds = $(row).find("td");
-    if (tds.length < 3) return;
-
-    const rawDate = $(tds[0]).text().trim();
-    const update = $(tds[1]).text().trim();
-    const description = $(tds[2]).text().trim();
-
-    let link = $(tds[1]).find("a").attr("href") || "";
-    if (link && !link.startsWith("http")) {
-      link = "https://hypixel-skyblock.fandom.com" + link;
-    } else if (!link) {
-      link = null;
-    }
-
-    accumulator.push({
-      rawDate,
-      cleanDate: cleanDate(rawDate),
-      update,
-      description,
-      link,
-      detailedContent: null
-    });
-  });
-
-  // Find next-page link (Fandom uses a navbox)
-  const nextHref = $("a[title='Next page']").attr("href");
-  if (nextHref && accumulator.length < limit) {
-    const nextUrl = "https://hypixel-skyblock.fandom.com" + nextHref;
-    return await scrapeChangelogPage(nextUrl, limit, accumulator);
-  }
-
-  return accumulator;
-}
-async function fetchAllPatchNotes(limit = 50) {
-  const initialUrl = "https://hypixel-skyblock.fandom.com/wiki/Changelog";
-
-  const entries = await scrapeChangelogPage(initialUrl, limit);
-
-  // Fetch full patch content for each entry (if link exists)
-  for (const item of entries) {
-    if (item.link) {
-      item.detailedContent = await fetchPatchDetails(item.link);
-    }
-  }
-
-  return entries;
-}
-
-// Fetch and parse patch notes from the wiki
-async function fetchPatchNotes(limit = 30) {
-  const res = await fetch(CHANGELOG_URL);
-  if (!res.ok) {
-    throw new Error("Failed to fetch changelog: HTTP " + res.status);
-  }
-
-  const html = await res.text();
-  const $ = cheerio.load(html);
-  const patches = [];
-
-  // The Changelog page uses wikitable tables for patch notes
-  $("table.wikitable tbody tr").each((i, row) => {
-    if (patches.length >= limit) return;
-
-    const tds = $(row).find("td");
-    // Skip header or malformed rows
-    if (tds.length < 3) return;
-
-    const rawDate = $(tds[0]).text().trim();
-    const update = $(tds[1]).text().trim();
-    const description = $(tds[2]).text().trim();
-
-    let link = $(tds[1]).find("a").attr("href") || "";
-    if (link && !link.startsWith("http")) {
-      link = "https://hypixel-skyblock.fandom.com" + link;
-    }
-
-    patches.push({
-      rawDate,
-      update,
-      description,
-      link: link || null
-    });
-  });
-
-  return patches;
-}
-
-// ---------------------- LOAD NEU ITEM DB ----------------------
-
+// ===============================
+//   NEU ITEM DATABASE LOADING
+// ===============================
 let NEU_DB = {};
 try {
-  // Make sure items_merged.json is in the same folder as this file
   NEU_DB = JSON.parse(fs.readFileSync("./items_merged.json", "utf8"));
   console.log("Loaded NEU DB with", Object.keys(NEU_DB).length, "items");
 } catch (e) {
@@ -150,21 +18,21 @@ try {
   NEU_DB = {};
 }
 
-// Normalize user input (name/partial/name → internal ID)
+// Normalize item identifier using NEU DB
 function normalizeIdentifier(input) {
   if (!input) return null;
   const query = input.toLowerCase().trim();
 
-  // 1) Direct ID match (HYPERION)
+  // direct id match
   if (NEU_DB[query.toUpperCase()]) return query.toUpperCase();
 
-  // 2) Exact name match ("Hyperion")
+  // exact name match
   for (const id in NEU_DB) {
     const name = NEU_DB[id]?.displayname || NEU_DB[id]?.name || "";
     if (name.toLowerCase() === query) return id;
   }
 
-  // 3) Partial name match ("hyp" → "HYPERION")
+  // partial name match
   for (const id in NEU_DB) {
     const name = NEU_DB[id]?.displayname || NEU_DB[id]?.name || "";
     if (name.toLowerCase().includes(query)) return id;
@@ -173,8 +41,9 @@ function normalizeIdentifier(input) {
   return null;
 }
 
-// ---------------------- SAFE FETCH WRAPPER ----------------------
-
+// ===============================
+//       SAFE JSON FETCH
+// ===============================
 async function safeJsonFetch(url, retries = 3) {
   let lastError = null;
 
@@ -186,20 +55,11 @@ async function safeJsonFetch(url, retries = 3) {
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
 
-      // 404 = "no data" (we treat as null, not a hard error)
-      if (response.status === 404) {
-        return null;
-      }
-
-      if (!response.ok) {
-        throw new Error("HTTP " + response.status);
-      }
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error("HTTP " + response.status);
 
       const text = await response.text();
-
-      if (!text || text.trim().length < 2) {
-        throw new Error("Empty JSON");
-      }
+      if (!text || text.trim().length < 2) throw new Error("Empty JSON");
 
       return JSON.parse(text);
     } catch (err) {
@@ -212,30 +72,137 @@ async function safeJsonFetch(url, retries = 3) {
   throw lastError;
 }
 
-// ---------------------- EXPRESS SETUP ----------------------
+// ===============================
+//    HYPIXEL FORUM SCRAPER
+// ===============================
+const SB_FORUM_BASE = "https://hypixel.net/forums/skyblock-patch-notes.158";
+const SB_FORUM_ROOT = "https://hypixel.net";
 
+// Extract patch version from title
+function extractVersionFromTitle(title) {
+  if (!title) return null;
+  const m = title.match(/(\d+\.\d+(?:\.\d+)?)/);
+  return m ? m[1] : null;
+}
+
+// Fetch a page of patchnote threads (page 1..15)
+async function fetchForumListing(page = 1) {
+  const url = page === 1
+    ? `${SB_FORUM_BASE}/`
+    : `${SB_FORUM_BASE}/page-${page}`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error("Failed to fetch forum listing: HTTP " + res.status);
+  }
+
+  const html = await res.text();
+  const $ = cheerio.load(html);
+
+  const threads = [];
+  const seen = new Set();
+
+  $('a[href^="/threads/"]').each((i, el) => {
+    const href = $(el).attr("href");
+    if (!href || seen.has(href)) return;
+    seen.add(href);
+
+    const title = $(el).text().trim();
+    if (!title) return;
+
+    const urlFull = href.startsWith("http")
+      ? href
+      : SB_FORUM_ROOT + href;
+
+    threads.push({
+      title,
+      url: urlFull,
+      version: extractVersionFromTitle(title)
+    });
+  });
+
+  return threads;
+}
+
+// Fetch full text of the patch
+async function fetchPatchBody(url) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error("Failed to fetch patch thread: HTTP " + res.status);
+  }
+
+  const html = await res.text();
+  const $ = cheerio.load(html);
+
+  let body = $(".bbWrapper").first().text().trim();
+  if (!body) body = $("#content").text().trim();
+
+  return body || null;
+}
+
+// Search threads across multiple forum pages
+async function searchPatchThreads({ search, limit = 10, pageMax = 15 }) {
+  const term = (search || "").toLowerCase();
+  const results = [];
+
+  for (let page = 1; page <= pageMax && results.length < limit; page++) {
+    const threads = await fetchForumListing(page);
+
+    for (const t of threads) {
+      const titleLower = t.title.toLowerCase();
+
+      if (
+        !term ||
+        titleLower.includes(term) ||
+        (t.version && t.version.toLowerCase().includes(term))
+      ) {
+        results.push(t);
+        if (results.length >= limit) break;
+      }
+    }
+  }
+
+  return results;
+}
+
+// ===============================
+//         EXPRESS APP
+// ===============================
 app.use(express.static(__dirname));
 
-// Basic test endpoint
+// Test endpoint
 app.get("/", (req, res) => {
   res.send("SkyBlock API is running.");
 });
 
-// ---------------------- MAIN API ENDPOINT ----------------------
-
-app.get("/api/item", async (req, res) => {
-  const rawInput = req.query.identifier;
-
-  if (!rawInput) {
-    return res.status(400).json({ error: "Missing 'identifier' query parameter" });
-  }
+// ===============================
+//    GET /api/patchnotes
+// ===============================
 app.get("/api/patchnotes", async (req, res) => {
-  const limit = parseInt(req.query.limit, 10) || 50; // default to 50 entries
+  const limit = parseInt(req.query.limit, 10) || 10;
+  const pageMax = parseInt(req.query.pageMax, 10) || 15;
+  const search = (req.query.search || "").trim();
 
   try {
-    const patches = await fetchAllPatchNotes(limit);
+    const threads = await searchPatchThreads({
+      search,
+      limit,
+      pageMax
+    });
+
+    const patches = [];
+    for (const t of threads) {
+      const body = await fetchPatchBody(t.url);
+      patches.push({
+        title: t.title,
+        url: t.url,
+        version: t.version,
+        body
+      });
+    }
+
     res.json({
-      source: "https://hypixel-skyblock.fandom.com/wiki/Changelog",
+      source: SB_FORUM_BASE,
       count: patches.length,
       patches
     });
@@ -245,24 +212,25 @@ app.get("/api/patchnotes", async (req, res) => {
   }
 });
 
+// ===============================
+//        GET /api/item
+// ===============================
+app.get("/api/item", async (req, res) => {
+  const rawInput = req.query.identifier;
+  if (!rawInput) {
+    return res.status(400).json({ error: "Missing 'identifier' query parameter" });
+  }
 
-  // Use NEU to normalize the identifier
   const id = normalizeIdentifier(rawInput);
-
   if (!id) {
     return res.status(404).json({ error: "Item not found in NEU database" });
   }
 
   try {
-    // 1) Hypixel Bazaar (official, stable endpoint, no API key required)
-    let hypBazaar = await safeJsonFetch(
-      "https://api.hypixel.net/v2/skyblock/bazaar"
-    ).catch((err) => {
-      console.error("Hypixel bazaar fetch failed:", err.toString());
-      return null;
-    });
-
+    // Hypixel official bazaar API
+    let hypBazaar = await safeJsonFetch("https://api.hypixel.net/v2/skyblock/bazaar");
     let bazaarEntry = null;
+
     if (
       hypBazaar &&
       hypBazaar.success &&
@@ -283,20 +251,17 @@ app.get("/api/patchnotes", async (req, res) => {
       };
     }
 
-    // 2) CoflNet Auction history (may legitimately be null)
+    // Auction history from CoflNet
     const history = await safeJsonFetch(
       `https://sky.coflnet.com/api/averageAuction?tag=${id}`
-    ).catch((err) => {
-      console.error("Auction history fetch failed:", err.toString());
-      return null;
-    });
+    );
 
     res.json({
       identifier_input: rawInput,
       normalized_id: id,
-      neu: NEU_DB[id] || null,        // NEU metadata (rarity, name, etc.)
-      bazaar: bazaarEntry,            // Structured bazaar data from Hypixel
-      auctionHistory: history || null // null if no AH data
+      neu: NEU_DB[id] || null,
+      bazaar: bazaarEntry,
+      auctionHistory: history || null
     });
   } catch (error) {
     console.error("Unexpected server error:", error);
@@ -304,9 +269,9 @@ app.get("/api/patchnotes", async (req, res) => {
   }
 });
 
-
-// ---------------------- START SERVER ----------------------
-
+// ===============================
+//        START SERVER
+// ===============================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("SkyBlock API running on port " + PORT);
