@@ -12,6 +12,57 @@
     }
   ],
   "paths": {
+    "/api/patchnotes": {
+  "get": {
+    "operationId": "getSkyblockPatchnotes",
+    "summary": "Get latest SkyBlock patch notes",
+    "description": "Returns recent Hypixel SkyBlock patch notes by scraping the changelog. Use this to understand recent gameplay and economy changes.",
+    "parameters": [
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Maximum number of patch note entries to return (default 30).",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Patch notes retrieved successfully.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "source": { "type": "string" },
+                "count": { "type": "integer" },
+                "patches": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "rawDate": { "type": "string" },
+                      "update": { "type": "string" },
+                      "description": { "type": "string" },
+                      "link": { "type": "string", "nullable": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "500": {
+        "description": "Server or scraping error."
+      }
+    }
+  }
+}
     "/api/item": {
       "get": {
         "operationId": "getSkyblockItem",
