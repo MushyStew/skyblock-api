@@ -15,24 +15,42 @@
     "/api/patchnotes": {
   "get": {
     "operationId": "getSkyblockPatchnotes",
-    "summary": "Get latest SkyBlock patch notes",
-    "description": "Returns recent Hypixel SkyBlock patch notes by scraping the changelog. Use this to understand recent gameplay and economy changes.",
+    "summary": "Get SkyBlock patch notes from the official forums",
+    "description": "Searches the official Hypixel SkyBlock Patch Notes forum (pages 1–15 by default) and returns threads with full patch body text.",
     "parameters": [
+      {
+        "name": "search",
+        "in": "query",
+        "required": false,
+        "description": "Search term for the patch title or version, e.g. '0.20.6' or 'November 9'. If omitted, returns the most recent threads.",
+        "schema": { "type": "string" }
+      },
       {
         "name": "limit",
         "in": "query",
         "required": false,
-        "description": "Maximum number of patch note entries to return (default 30).",
+        "description": "Maximum number of patch threads to return (default 10).",
         "schema": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 100
+          "maximum": 50
+        }
+      },
+      {
+        "name": "pageMax",
+        "in": "query",
+        "required": false,
+        "description": "Maximum forum pages to scan (default 15).",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 15
         }
       }
     ],
     "responses": {
       "200": {
-        "description": "Patch notes retrieved successfully.",
+        "description": "Patch threads retrieved successfully.",
         "content": {
           "application/json": {
             "schema": {
@@ -45,10 +63,10 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "rawDate": { "type": "string" },
-                      "update": { "type": "string" },
-                      "description": { "type": "string" },
-                      "link": { "type": "string", "nullable": true }
+                      "title": { "type": "string" },
+                      "url": { "type": "string" },
+                      "version": { "type": "string", "nullable": true },
+                      "body": { "type": "string" }
                     }
                   }
                 }
@@ -63,6 +81,7 @@
     }
   }
 }
+
     "/api/item": {
       "get": {
         "operationId": "getSkyblockItem",
